@@ -42,7 +42,10 @@ trap cleanup EXIT
 echo "[1/6] Embedding git short hash"
 ./scripts/embed_git_hash.sh
 
-HASH="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+# Report the hash that was actually embedded (= what the device will report),
+# not local HEAD.
+HASH="$(awk -F'"' '/^BRIDGE_GIT_HASH/ {print $2; exit}' production_tool/mqtt_bridge.py)"
+HASH="${HASH:-unknown}"
 SEMVER="$(awk -F'"' '/^BRIDGE_SEMVER/ {print $2; exit}' production_tool/mqtt_bridge.py)"
 SEMVER="${SEMVER:-unknown}"
 
