@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .specify-cache/
+# spec-kit の「作業中 spec」ポインタ (ローカル状態、 main で固定しない)
+.specify/feature.json
 .benchmarks/
 .DS_Store
 

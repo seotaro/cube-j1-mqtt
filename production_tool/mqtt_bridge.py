@@ -3041,6 +3041,23 @@ def ropt(fd, timeout=3):
 # 6 にすると初回 scan が 32 秒、 LQI 推定精度も上がる。
 SCAN_DURATION_BASE = 6
 SCAN_RETRY_LIMIT = 10
+# spec 054: 全 ch scan の mask = BP35CX の ch33-60 (= EEDSCAN と同じ 28 bit)。
+FULL_SCAN_CHANNEL_MASK = "0FFFFFFF"
+# spec 054: 実機 (EVER 1.5.2) で d=6 全 ch scan = 17.7s (= 28ch で ~0.63s/ch)。
+# 仕様書の 0.96ms * (2^d + 1) に加え ch ごとの固定 overhead があるので余裕を持つ。
+SKSCAN_PER_CHANNEL_OVERHEAD_SEC = 1.0
+SKSCAN_TIMEOUT_MARGIN_SEC = 10.0
+
+
+def compute_skscan_timeout(channel_mask, duration):
+    """spec 054: EVENT 22 (scan 完了) を待つ上限秒数。
+
+    旧実装は duration code をそのまま秒数として使い、 scan 完了前に打ち切って
+    いた。 mask の bit 数 (= scan 対象 ch 数) と duration から所要時間を見積もる。
+    """
+    channels = bin(int(channel_mask, 16)).count("1")
+    per_channel = 0.00096 * (2 ** int(duration) + 1) + SKSCAN_PER_CHANNEL_OVERHEAD_SEC
+    return channels * per_channel + SKSCAN_TIMEOUT_MARGIN_SEC
 
 
 def channel_to_mask(ch):
@@ -3056,7 +3073,7 @@ def channel_to_mask(ch):
 # SKSTACK-IP / Wi-SUN B-route connection
 # ---------------------------------------------------------------------------
 
-def skscan(fd, channel_mask="FFFFFFFF", duration=SCAN_DURATION_BASE,
+def skscan(fd, channel_mask=FULL_SCAN_CHANNEL_MASK, duration=SCAN_DURATION_BASE,
            max_retries=None, diag_state=None):
     """Active scan with retries; returns best PAN info dict or empty dict.
 
@@ -3084,7 +3101,8 @@ def skscan(fd, channel_mask="FFFFFFFF", duration=SCAN_DURATION_BASE,
         pan_list  = []
         current   = {}
         scan_done = False
-        deadline  = time.time() + duration
+        # spec 054: duration は秒数ではなく scan 時間の code。 EVENT 22 まで待つ。
+        deadline  = time.time() + compute_skscan_timeout(channel_mask, duration)
         while time.time() < deadline:
             line = serial_readline(fd, timeout=2)
             if line is None:
@@ -3459,8 +3477,8 @@ def wisun_connect(fd, br_id, br_pwd, prefer_known_channel=False,
             pan = None  # fall through to full scan below
 
     if not pan:
-        log("SKSCAN (may take up to 60s)")
-        pan = skscan(fd, channel_mask="FFFFFFFF",
+        log("SKSCAN full scan (waits for EVENT 22, ~20s per try)")
+        pan = skscan(fd, channel_mask=FULL_SCAN_CHANNEL_MASK,
                      duration=fallback_duration, diag_state=diag_state)
 
     if not pan.get("Channel") or not pan.get("Pan ID") or not pan.get("Addr"):
